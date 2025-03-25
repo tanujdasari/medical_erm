@@ -1,20 +1,57 @@
---Total Charge Amount per provider by department
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.patient_history` AS
-select
-  concat(p.firstname, ' ', p.LastName) as Provider_Name,
-  d.Name as Dept_Name,
-  sum(t.Amount) as Amount
-from
-  `avd-databricks-demo.silver_dataset.transactions` t
-  left join `avd-databricks-demo.silver_dataset.providers` p on SPLIT(p.ProviderID, "-")[SAFE_OFFSET(1)] = t.ProviderID
-  left join `avd-databricks-demo.silver_dataset.departments` d on SPLIT(d.Dept_Id, "-")[SAFE_OFFSET(0)] = p.DeptID
-WHERE t.is_quarantined = false and d.Name IS NOT NULL
+--1. Total Charge Amount per provider by department
+CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.provider_charge_summary` (
+    Provider_Name STRING,
+    Dept_Name STRING,
+    Amount FLOAT64
+);
+
+# truncate table
+TRUNCATE TABLE `avd-databricks-demo.gold_dataset.provider_charge_summary`;
+
+# insert data
+INSERT INTO `avd-databricks-demo.gold_dataset.provider_charge_summary`
+SELECT 
+    CONCAT(p.firstname, ' ', p.LastName) AS Provider_Name,
+    d.Name AS Dept_Name,
+    SUM(t.Amount) AS Amount
+FROM `avd-databricks-demo.silver_dataset.transactions` t
+LEFT JOIN `avd-databricks-demo.silver_dataset.providers` p 
+    ON SPLIT(p.ProviderID, "-")[SAFE_OFFSET(1)] = t.ProviderID
+LEFT JOIN `avd-databricks-demo.silver_dataset.departments` d 
+    ON SPLIT(d.Dept_Id, "-")[SAFE_OFFSET(0)] = p.DeptID
+WHERE t.is_quarantined = FALSE AND d.Name IS NOT NULL
 GROUP BY Provider_Name, Dept_Name;
 
---------------------------------------------------------------------------------------------------
---1. Patient History (Gold) : This table provides a complete history of a patient’s visits, diagnoses, and financial interactions.
 
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.patient_history` AS
+--------------------------------------------------------------------------------------------------
+--2. Patient History (Gold) : This table provides a complete history of a patient’s visits, diagnoses, and financial interactions.
+
+# CREATE TABLE
+CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.patient_history` (
+    Patient_Key STRING,
+    FirstName STRING,
+    LastName STRING,
+    Gender STRING,
+    DOB DATE,
+    Address STRING,
+    EncounterDate DATE,
+    EncounterType STRING,
+    Transaction_Key STRING,
+    VisitDate DATE,
+    ServiceDate DATE,
+    BilledAmount FLOAT64,
+    PaidAmount FLOAT64,
+    ClaimStatus STRING,
+    ClaimAmount FLOAT64,
+    ClaimPaidAmount FLOAT64,
+    PayorType STRING
+);
+
+# TRUNCATE TABLE
+TRUNCATE TABLE `avd-databricks-demo.gold_dataset.patient_history`;
+
+# INSERT DATA
+INSERT INTO `avd-databricks-demo.gold_dataset.patient_history`
 SELECT 
     p.Patient_Key,
     p.FirstName,
@@ -42,10 +79,30 @@ LEFT JOIN `avd-databricks-demo.silver_dataset.claims` c
     ON t.SRC_TransactionID = c.TransactionID
 WHERE p.is_current = TRUE;
 
---------------------------------------------------------------------------------------------------
--- 2. Provider Performance Summary (Gold) : This table summarizes provider activity, including the number of encounters, total billed amount, and claim success rate.
 
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.provider_performance` AS
+--------------------------------------------------------------------------------------------------
+-- 3. Provider Performance Summary (Gold) : This table summarizes provider activity, including the number of encounters, total billed amount, and claim success rate.
+
+# CREATE TABLE
+CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.provider_performance` (
+    ProviderID STRING,
+    FirstName STRING,
+    LastName STRING,
+    Specialization STRING,
+    TotalEncounters INT64,
+    TotalTransactions INT64,
+    TotalBilledAmount FLOAT64,
+    TotalPaidAmount FLOAT64,
+    ApprovedClaims INT64,
+    TotalClaims INT64,
+    ClaimApprovalRate FLOAT64
+);
+
+# TRUNCATE TABLE
+TRUNCATE TABLE `avd-databricks-demo.gold_dataset.provider_performance`;
+
+# INSERT DATA
+INSERT INTO `avd-databricks-demo.gold_dataset.provider_performance`
 SELECT 
     pr.ProviderID,
     pr.FirstName,
@@ -68,9 +125,24 @@ LEFT JOIN `avd-databricks-demo.silver_dataset.claims` c
 GROUP BY pr.ProviderID, pr.FirstName, pr.LastName, pr.Specialization;
 
 --------------------------------------------------------------------------------------------------
--- 3. Department Performance Analytics (Gold): Provides insights into department-level efficiency, revenue, and patient volume.
+-- 4. Department Performance Analytics (Gold): Provides insights into department-level efficiency, revenue, and patient volume.
 
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.department_performance` AS
+# CREATE TABLE
+CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.department_performance` (
+    Dept_Id STRING,
+    DepartmentName STRING,
+    TotalEncounters INT64,
+    TotalTransactions INT64,
+    TotalBilledAmount FLOAT64,
+    TotalPaidAmount FLOAT64,
+    AvgPaymentPerTransaction FLOAT64
+);
+
+# TRUNCATE TABLE
+TRUNCATE TABLE `avd-databricks-demo.gold_dataset.department_performance`;
+
+# INSERT DATA
+INSERT INTO `avd-databricks-demo.gold_dataset.department_performance`
 SELECT 
     d.Dept_Id,
     d.Name AS DepartmentName,
@@ -89,6 +161,5 @@ GROUP BY d.Dept_Id, d.Name;
 
 --------------------------------------------------------------------------------------------------
 
--- 4. Financial Metrics (Gold) : Aggregates financial KPIs, such as total revenue, claim success rate, and outstanding balances.
--- 5. Payor Performance & Claims Summary (Gold): This table tracks the performance of insurance payors, focusing on claim approval rates, payout amounts, and processing efficiency.
-
+-- 5. Financial Metrics (Gold) : Aggregates financial KPIs, such as total revenue, claim success rate, and outstanding balances.
+-- 6. Payor Performance & Claims Summary (Gold): This table tracks the performance of insurance payors, focusing on claim approval rates, payout amounts, and processing efficiency.
