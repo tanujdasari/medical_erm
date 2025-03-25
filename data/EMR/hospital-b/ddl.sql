@@ -1,4 +1,4 @@
--- For database hospital_a_db:
+-- For database hospital_b_db:
 
 -- 2. Departments Table:
 
@@ -35,7 +35,7 @@ CREATE TABLE patients (
     Gender nvarchar(50) NOT NULL,
     DOB date NOT NULL,
     Address nvarchar(100) NOT NULL,
-    Updated_Date date NOT NULL,
+    ModifiedDate date NOT NULL,
     CONSTRAINT PK_patients PRIMARY KEY (ID)
 );
 
