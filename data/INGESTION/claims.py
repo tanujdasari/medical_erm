@@ -1,6 +1,11 @@
 # Databricks notebook source
 from pyspark.sql import SparkSession, functions as f
 
+# Create Spark session
+spark = SparkSession.builder \
+    .appName("Healthcare Claims Ingestion") \
+    .getOrCreate()
+
 BUCKET_NAME = "healthcare-bucket-22032025"
 BQ_TABLE = "avd-databricks-demo.bronze_dataset.claims"
 TEMP_GCS_BUCKET = "healthcare-bucket-22032025/temp/"
