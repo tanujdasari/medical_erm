@@ -32,20 +32,21 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.gold_dataset.patient_history` (
     FirstName STRING,
     LastName STRING,
     Gender STRING,
-    DOB DATE,
+    DOB INT64,
     Address STRING,
-    EncounterDate DATE,
+    EncounterDate INT64,
     EncounterType STRING,
     Transaction_Key STRING,
-    VisitDate DATE,
-    ServiceDate DATE,
+    VisitDate INT64,
+    ServiceDate INT64,
     BilledAmount FLOAT64,
     PaidAmount FLOAT64,
     ClaimStatus STRING,
-    ClaimAmount FLOAT64,
-    ClaimPaidAmount FLOAT64,
+    ClaimAmount STRING,
+    ClaimPaidAmount STRING,
     PayorType STRING
 );
+
 
 # TRUNCATE TABLE
 TRUNCATE TABLE `avd-databricks-demo.gold_dataset.patient_history`;
