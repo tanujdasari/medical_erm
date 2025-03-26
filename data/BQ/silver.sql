@@ -126,10 +126,10 @@ FROM (
     UNION ALL
 
     SELECT DISTINCT 
-        PatientID AS SRC_PatientID,
-        FirstName,
-        LastName,
-        MiddleName,
+        ID AS SRC_PatientID,
+        F_Name as FirstName,
+        L_Name as LastName,
+        M_Name as MiddleName,
         SSN,
         PhoneNumber,
         Gender,
