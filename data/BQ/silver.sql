@@ -1,7 +1,10 @@
--- IN THIS WE WE WILL IMPLEMENTING BOTH SCD2 AND CDM LOGIC FOR THE SILVER TABLES
+-- IN THIS WE WILL IMPLEMENT BOTH SCD2 AND CDM LOGIC FOR THE SILVER TABLES
+-- Project: my-project-hospital-erm
 
--- 1. Create table departments by Merge Data from Hospital A & B  
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.departments` (
+/* ========================== DEPARTMENTS ========================== */
+
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.departments` (
     Dept_Id STRING,
     SRC_Dept_Id STRING,
     Name STRING,
@@ -9,12 +12,11 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.departments` (
     is_quarantined BOOLEAN
 );
 
+-- 2) Truncate before load
+TRUNCATE TABLE `my-project-hospital-erm.silver_dataset.departments`;
 
--- 2. Truncate Silver Table Before Inserting 
-TRUNCATE TABLE `avd-databricks-demo.silver_dataset.departments`;
-
--- 3. full load by Inserting merged Data 
-INSERT INTO `avd-databricks-demo.silver_dataset.departments`
+-- 3) Full load (merge HA + HB)
+INSERT INTO `my-project-hospital-erm.silver_dataset.departments`
 SELECT DISTINCT 
     CONCAT(deptid, '-', datasource) AS Dept_Id,
     deptid AS SRC_Dept_Id,
@@ -25,15 +27,15 @@ SELECT DISTINCT
         ELSE FALSE 
     END AS is_quarantined
 FROM (
-    SELECT DISTINCT *, 'hosa' AS datasource FROM `avd-databricks-demo.bronze_dataset.departments_ha`
+    SELECT DISTINCT *, 'hosa' AS datasource FROM `my-project-hospital-erm.bronze_dataset.departments_ha`
     UNION ALL
-    SELECT DISTINCT *, 'hosb' AS datasource FROM `avd-databricks-demo.bronze_dataset.departments_hb`
+    SELECT DISTINCT *, 'hosb' AS datasource FROM `my-project-hospital-erm.bronze_dataset.departments_hb`
 );
 
--------------------------------------------------------------------------------------------------------
+/* ========================== PROVIDERS ========================== */
 
--- 1. Create table providers by Merge Data from Hospital A & B  
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.providers` (
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.providers` (
     ProviderID STRING,
     FirstName STRING,
     LastName STRING,
@@ -44,11 +46,11 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.providers` (
     is_quarantined BOOLEAN
 );
 
--- 2. Truncate Silver Table Before Inserting 
-TRUNCATE TABLE `avd-databricks-demo.silver_dataset.providers`;
+-- 2) Truncate
+TRUNCATE TABLE `my-project-hospital-erm.silver_dataset.providers`;
 
--- 3. full load by Inserting merged Data 
-INSERT INTO `avd-databricks-demo.silver_dataset.providers`
+-- 3) Full load (merge HA + HB)
+INSERT INTO `my-project-hospital-erm.silver_dataset.providers`
 SELECT DISTINCT 
     ProviderID,
     FirstName,
@@ -62,15 +64,15 @@ SELECT DISTINCT
         ELSE FALSE 
     END AS is_quarantined
 FROM (
-    SELECT DISTINCT *, 'hosa' AS datasource FROM `avd-databricks-demo.bronze_dataset.providers_ha`
+    SELECT DISTINCT *, 'hosa' AS datasource FROM `my-project-hospital-erm.bronze_dataset.providers_ha`
     UNION ALL
-    SELECT DISTINCT *, 'hosb' AS datasource FROM `avd-databricks-demo.bronze_dataset.providers_hb`
+    SELECT DISTINCT *, 'hosb' AS datasource FROM `my-project-hospital-erm.bronze_dataset.providers_hb`
 );
 
--------------------------------------------------------------------------------------------------------
+/* ========================== PATIENTS (SCD2) ========================== */
 
--- 1. Create patients Table in BigQuery
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.patients` (
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.patients` (
     Patient_Key STRING,
     SRC_PatientID STRING,
     FirstName STRING,
@@ -89,8 +91,8 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.patients` (
     is_current BOOL
 );
 
---Create a quality_checks temp table
-CREATE OR REPLACE TABLE `avd-databricks-demo.silver_dataset.quality_checks` AS
+-- 2) Quality checks temp
+CREATE OR REPLACE TABLE `my-project-hospital-erm.silver_dataset.quality_checks` AS
 SELECT DISTINCT 
     CONCAT(SRC_PatientID, '-', datasource) AS Patient_Key,
     SRC_PatientID,
@@ -121,7 +123,7 @@ FROM (
         Address,
         ModifiedDate,
         'hosa' AS datasource
-    FROM `avd-databricks-demo.bronze_dataset.patients_ha`
+    FROM `my-project-hospital-erm.bronze_dataset.patients_ha`
     
     UNION ALL
 
@@ -137,16 +139,15 @@ FROM (
         Address,
         ModifiedDate,
         'hosb' AS datasource
-    FROM `avd-databricks-demo.bronze_dataset.patients_hb`
+    FROM `my-project-hospital-erm.bronze_dataset.patients_hb`
 );
 
--- 3. Apply SCD Type 2 Logic with MERGE
-MERGE INTO `avd-databricks-demo.silver_dataset.patients` AS target
-USING `avd-databricks-demo.silver_dataset.quality_checks` AS source
+-- 3) SCD2 MERGE
+MERGE INTO `my-project-hospital-erm.silver_dataset.patients` AS target
+USING `my-project-hospital-erm.silver_dataset.quality_checks` AS source
 ON target.Patient_Key = source.Patient_Key
 AND target.is_current = TRUE 
 
--- Step 1: Mark existing records as historical if any column has changed
 WHEN MATCHED AND (
     target.SRC_PatientID <> source.SRC_PatientID OR
     target.FirstName <> source.FirstName OR
@@ -165,7 +166,6 @@ THEN UPDATE SET
     target.is_current = FALSE,
     target.modified_date = CURRENT_TIMESTAMP()
 
--- Step 2: Insert new and updated records as the latest active records
 WHEN NOT MATCHED 
 THEN INSERT (
     Patient_Key,
@@ -204,13 +204,13 @@ VALUES (
     TRUE 
 );
 
--- DROP quality_check table
-DROP TABLE IF EXISTS `avd-databricks-demo.silver_dataset.quality_checks`;
+-- 4) Drop QC temp
+DROP TABLE IF EXISTS `my-project-hospital-erm.silver_dataset.quality_checks`;
 
--------------------------------------------------------------------------------------------------------
+/* ========================== TRANSACTIONS (SCD2) ========================== */
 
--- 1. Create transactions Table in BigQuery
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.transactions` (
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.transactions` (
     Transaction_Key STRING,
     SRC_TransactionID STRING,
     EncounterID STRING,
@@ -240,8 +240,8 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.transactions` (
     is_current BOOL
 );
 
--- 2. Create a quality_checks temp table
-CREATE OR REPLACE TABLE `avd-databricks-demo.silver_dataset.quality_checks` AS
+-- 2) QC temp
+CREATE OR REPLACE TABLE `my-project-hospital-erm.silver_dataset.quality_checks` AS
 SELECT DISTINCT 
     CONCAT(TransactionID, '-', datasource) AS Transaction_Key,
     TransactionID AS SRC_TransactionID,
@@ -271,18 +271,17 @@ SELECT DISTINCT
         ELSE FALSE
     END AS is_quarantined
 FROM (
-    SELECT DISTINCT *, 'hosa' AS datasource FROM `avd-databricks-demo.bronze_dataset.transactions_ha`
+    SELECT DISTINCT *, 'hosa' AS datasource FROM `my-project-hospital-erm.bronze_dataset.transactions_ha`
     UNION ALL
-    SELECT DISTINCT *, 'hosb' AS datasource FROM `avd-databricks-demo.bronze_dataset.transactions_hb`
+    SELECT DISTINCT *, 'hosb' AS datasource FROM `my-project-hospital-erm.bronze_dataset.transactions_hb`
 );
 
--- 3. Apply SCD Type 2 Logic with MERGE
-MERGE INTO `avd-databricks-demo.silver_dataset.transactions` AS target
-USING `avd-databricks-demo.silver_dataset.quality_checks` AS source
+-- 3) SCD2 MERGE
+MERGE INTO `my-project-hospital-erm.silver_dataset.transactions` AS target
+USING `my-project-hospital-erm.silver_dataset.quality_checks` AS source
 ON target.Transaction_Key = source.Transaction_Key
 AND target.is_current = TRUE 
 
--- Step 1: Mark existing records as historical if any column has changed
 WHEN MATCHED AND (
     target.SRC_TransactionID <> source.SRC_TransactionID OR
     target.EncounterID <> source.EncounterID OR
@@ -312,7 +311,6 @@ THEN UPDATE SET
     target.is_current = FALSE,
     target.modified_date = CURRENT_TIMESTAMP()
 
--- Step 2: Insert new and updated records as the latest active records
 WHEN NOT MATCHED 
 THEN INSERT (
     Transaction_Key,
@@ -373,13 +371,13 @@ VALUES (
     TRUE 
 );
 
--- 4. DROP quality_check table
-DROP TABLE IF EXISTS `avd-databricks-demo.silver_dataset.quality_checks`;
+-- 4) Drop QC temp
+DROP TABLE IF EXISTS `my-project-hospital-erm.silver_dataset.quality_checks`;
 
--------------------------------------------------------------------------------------------------------
+/* ========================== ENCOUNTERS (SCD2) ========================== */
 
--- 1. Create the encounters Table in BigQuery
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.encounters` (
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.encounters` (
     Encounter_Key STRING,
     SRC_EncounterID STRING,
     PatientID STRING,
@@ -396,8 +394,8 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.encounters` (
     is_current BOOL
 );
 
--- 2. Create a quality_checks temp table for encounters
-CREATE OR REPLACE TABLE `avd-databricks-demo.silver_dataset.quality_checks_encounters` AS
+-- 2) QC temp
+CREATE OR REPLACE TABLE `my-project-hospital-erm.silver_dataset.quality_checks_encounters` AS
 SELECT DISTINCT 
     CONCAT(SRC_EncounterID, '-', datasource) AS Encounter_Key,
     SRC_EncounterID,
@@ -424,7 +422,7 @@ FROM (
         ProcedureCode,
         ModifiedDate,
         'hosa' AS datasource
-    FROM `avd-databricks-demo.bronze_dataset.encounters_ha`
+    FROM `my-project-hospital-erm.bronze_dataset.encounters_ha`
     
     UNION ALL
 
@@ -438,16 +436,15 @@ FROM (
         ProcedureCode,
         ModifiedDate,
         'hosb' AS datasource
-    FROM `avd-databricks-demo.bronze_dataset.encounters_hb`
+    FROM `my-project-hospital-erm.bronze_dataset.encounters_hb`
 );
 
--- 3. Apply SCD Type 2 Logic with MERGE
-MERGE INTO `avd-databricks-demo.silver_dataset.encounters` AS target
-USING `avd-databricks-demo.silver_dataset.quality_checks_encounters` AS source
+-- 3) SCD2 MERGE
+MERGE INTO `my-project-hospital-erm.silver_dataset.encounters` AS target
+USING `my-project-hospital-erm.silver_dataset.quality_checks_encounters` AS source
 ON target.Encounter_Key = source.Encounter_Key
 AND target.is_current = TRUE 
 
--- Step 1: Mark existing records as historical if any column has changed
 WHEN MATCHED AND (
     target.SRC_EncounterID <> source.SRC_EncounterID OR
     target.PatientID <> source.PatientID OR
@@ -464,7 +461,6 @@ THEN UPDATE SET
     target.is_current = FALSE,
     target.modified_date = CURRENT_TIMESTAMP()
 
--- Step 2: Insert new and updated records as the latest active records
 WHEN NOT MATCHED 
 THEN INSERT (
     Encounter_Key,
@@ -499,13 +495,13 @@ VALUES (
     TRUE 
 );
 
--- 4. DROP quality_check table
-DROP TABLE IF EXISTS `avd-databricks-demo.silver_dataset.quality_checks_encounters`;
+-- 4) Drop QC temp
+DROP TABLE IF EXISTS `my-project-hospital-erm.silver_dataset.quality_checks_encounters`;
 
--------------------------------------------------------------------------------------------------------
+/* ========================== CLAIMS (SCD2) ========================== */
 
--- 1. Create the Claims Table in BigQuery
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.claims` (
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.claims` (
     Claim_Key STRING,
     SRC_ClaimID STRING,
     TransactionID STRING,
@@ -532,8 +528,8 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.claims` (
     is_current BOOLEAN
 );
 
--- 2. Create a quality_checks temp table for claims
-CREATE OR REPLACE TABLE `avd-databricks-demo.silver_dataset.quality_checks_claims` AS
+-- 2) QC temp
+CREATE OR REPLACE TABLE `my-project-hospital-erm.silver_dataset.quality_checks_claims` AS
 SELECT 
     CONCAT(SRC_ClaimID, '-', datasource) AS Claim_Key,
     SRC_ClaimID,
@@ -580,16 +576,15 @@ FROM (
         InsertDate,
         ModifiedDate,
         'hosa' AS datasource
-    FROM `avd-databricks-demo.bronze_dataset.claims`
+    FROM `my-project-hospital-erm.bronze_dataset.claims`
 );
 
--- 3. Apply SCD Type 2 Logic with MERGE
-MERGE INTO `avd-databricks-demo.silver_dataset.claims` AS target
-USING `avd-databricks-demo.silver_dataset.quality_checks_claims` AS source
+-- 3) SCD2 MERGE
+MERGE INTO `my-project-hospital-erm.silver_dataset.claims` AS target
+USING `my-project-hospital-erm.silver_dataset.quality_checks_claims` AS source
 ON target.Claim_Key = source.Claim_Key
 AND target.is_current = TRUE 
 
--- Step 1: Mark existing records as historical if any column has changed
 WHEN MATCHED AND (
     target.SRC_ClaimID <> source.SRC_ClaimID OR
     target.TransactionID <> source.TransactionID OR
@@ -615,7 +610,6 @@ THEN UPDATE SET
     target.is_current = FALSE,
     target.modified_date = CURRENT_TIMESTAMP()
 
--- Step 2: Insert new and updated records as the latest active records
 WHEN NOT MATCHED 
 THEN INSERT (
     Claim_Key,
@@ -670,13 +664,13 @@ VALUES (
     TRUE 
 );
 
--- 4. DROP quality_check table
-DROP TABLE IF EXISTS `avd-databricks-demo.silver_dataset.quality_checks_claims`;
+-- 4) Drop QC temp
+DROP TABLE IF EXISTS `my-project-hospital-erm.silver_dataset.quality_checks_claims`;
 
--------------------------------------------------------------------------------------------------------
+/* ========================== CPT CODES (SCD2) ========================== */
 
--- 1. Create the CP Codes Silver Table in BigQuery
-CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.cpt_codes` (
+-- 1) Create table
+CREATE TABLE IF NOT EXISTS `my-project-hospital-erm.silver_dataset.cpt_codes` (
     CP_Code_Key STRING,
     procedure_code_category STRING,
     cpt_codes STRING,
@@ -689,8 +683,8 @@ CREATE TABLE IF NOT EXISTS `avd-databricks-demo.silver_dataset.cpt_codes` (
     is_current BOOLEAN
 );
 
--- 2. Create a quality_checks temp table for CP Codes
-CREATE OR REPLACE TABLE `avd-databricks-demo.silver_dataset.quality_checks_cpt_codes` AS
+-- 2) QC temp
+CREATE OR REPLACE TABLE `my-project-hospital-erm.silver_dataset.quality_checks_cpt_codes` AS
 SELECT 
     CONCAT(cpt_codes, '-', datasource) AS CP_Code_Key,
     procedure_code_category,
@@ -698,7 +692,6 @@ SELECT
     procedure_code_descriptions,
     code_status,
     datasource,
-    -- Define a quarantine condition (null values in key fields)
     CASE 
         WHEN cpt_codes IS NULL OR LOWER(code_status) = 'null' THEN TRUE
         ELSE FALSE
@@ -710,16 +703,15 @@ FROM (
         procedure_code_descriptions,
         code_status,
         'hosa' AS datasource
-    FROM `avd-databricks-demo.bronze_dataset.cpt_codes`
+    FROM `my-project-hospital-erm.bronze_dataset.cpt_codes`
 );
 
--- 3. Apply SCD Type 2 Logic with MERGE
-MERGE INTO `avd-databricks-demo.silver_dataset.cpt_codes` AS target
-USING `avd-databricks-demo.silver_dataset.quality_checks_cpt_codes` AS source
+-- 3) SCD2 MERGE
+MERGE INTO `my-project-hospital-erm.silver_dataset.cpt_codes` AS target
+USING `my-project-hospital-erm.silver_dataset.quality_checks_cpt_codes` AS source
 ON target.CP_Code_Key = source.CP_Code_Key
 AND target.is_current = TRUE 
 
--- Step 1: Mark existing records as historical if any column has changed
 WHEN MATCHED AND (
     target.procedure_code_category <> source.procedure_code_category OR
     target.cpt_codes <> source.cpt_codes OR
@@ -732,7 +724,6 @@ THEN UPDATE SET
     target.is_current = FALSE,
     target.modified_date = CURRENT_TIMESTAMP()
 
--- Step 2: Insert new and updated records as the latest active records
 WHEN NOT MATCHED 
 THEN INSERT (
     CP_Code_Key,
@@ -759,6 +750,5 @@ VALUES (
     TRUE 
 );
 
--- 4. DROP quality_check table
-DROP TABLE IF EXISTS `avd-databricks-demo.silver_dataset.quality_checks_cpt_codes`;
- 
+-- 4) Drop QC temp
+DROP TABLE IF EXISTS `my-project-hospital-erm.silver_dataset.quality_checks_cpt_codes`;
