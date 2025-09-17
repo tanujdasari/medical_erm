@@ -1,33 +1,57 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import input_file_name, when
+from pyspark.sql import SparkSession, functions as F
 
-# Create Spark session
-spark = SparkSession.builder \
-                    .appName("Healthcare Claims Ingestion") \
-                    .getOrCreate()
+# -----------------------------
+# Spark session
+# -----------------------------
+spark = (
+    SparkSession.builder
+        .appName("Healthcare Claims Ingestion")
+        # If you have the connector jar on the classpath you don't need extra config here.
+        # .config("spark.sql.execution.arrow.pyspark.enabled", "true")  # optional
+        .getOrCreate()
+)
 
-# configure variables
-BUCKET_NAME = "healthcare-bucket-22032025"
-CLAIMS_BUCKET_PATH = f"gs://{BUCKET_NAME}/landing/claims/*.csv"
-BQ_TABLE = "avd-databricks-demo.bronze_dataset.claims"
-TEMP_GCS_BUCKET = f"{BUCKET_NAME}/temp/"
+# -----------------------------
+# Config
+# -----------------------------
+BUCKET_NAME = "healthcare-bucket-22052025"
+CLAIMS_PATH = f"gs://{BUCKET_NAME}/landing/claims/*.csv"
 
-# read from claims source
-claims_df = spark.read.csv(CLAIMS_BUCKET_PATH, header=True)
+# BigQuery: MUST be project.dataset.table with NO backticks
+BQ_TABLE = "my-project-hospital-erm.bronze_dataset.claims"
 
-# adding hospital source for future reference
-claims_df = (claims_df
-                .withColumn("datasource", 
-                              when(input_file_name().contains("hospital2"), "hosb")
-                             .when(input_file_name().contains("hospital1"), "hosa").otherwise("None")))
+# temporaryGcsBucket MUST be just the bucket name (no gs://, no folder)
+TEMP_GCS_BUCKET = BUCKET_NAME
 
-# dropping dupplicates if any
-claims_df = claims_df.dropDuplicates()
+# -----------------------------
+# Read → Transform
+# -----------------------------
+claims_df = (
+    spark.read.csv(CLAIMS_PATH, header=True)    # add inferSchema=True if you want Spark to guess types
+         
+         .withColumn(
+             "datasource",
+             F.when(F.input_file_name().contains("hospital2"), F.lit("hospb"))
+              .when(F.input_file_name().contains("hospital1"), F.lit("hospa"))
+              .otherwise(F.lit("None"))
+         )
+         .withColumn("ingest_ts", F.current_timestamp())  # optional: helpful audit column
+)
+claims_df=claims_df.dropDuplicates()
+claims_df.show(100)
 
-# write to bigquery
-(claims_df.write
-            .format("bigquery")
-            .option("table", BQ_TABLE)
-            .option("temporaryGcsBucket", TEMP_GCS_BUCKET)
-            .mode("overwrite")
-            .save())
+# -----------------------------
+# Write to BigQuery
+# -----------------------------
+(
+    claims_df.write
+        .format("bigquery")
+        .mode("overwrite")  # change to "append" if you don't want to replace existing table data
+        .option("table", BQ_TABLE)
+        .option("temporaryGcsBucket", TEMP_GCS_BUCKET)
+        # .option("writeMethod", "direct")  # optional: enable if your connector/runtime supports it
+        .mode("overwrite")
+        .save()
+)
+
+print("✅ Claims data written to BigQuery:", BQ_TABLE)
